@@ -1,0 +1,357 @@
+# Sugar-Sweetened-Beverages#####data input#####
+dat=read.csv('/Users/ironpao/Documents/學業/程式語言/R/Project/20171204_研究法分析/data/健康服務研究法整合問卷 (回應) - 表單回應.csv')
+
+#####packages#####
+#沒裝過packages需要先跑下面的install.package()
+#install.packages('dplyr')
+#install.packages('ggplot2')
+#install.packages('data.table')
+#install.packages('reshape2')
+#install.packages('showtext')
+#install.packages('sysfonts')
+#install.packages('gridExtra')
+#install.packages('cvTools')
+#install.packages('boot')
+
+library(dplyr)         #整理資料
+library(ggplot2)       #作圖
+library(data.table)    #整理資料
+library(reshape2)      #圖片中文字
+library(showtext)      #圖片中文字
+library(sysfonts)      #圖片中文字
+library(gridExtra)     #ggplot combind
+library(cvTools)       #k-fold cross-validation
+library(boot)          #k-fold cross-validation
+
+#####sort out#####
+###select age
+dat=dat[is.na(dat[,4])==F & is.na(dat[,5])==F & is.na(dat[,6])==F,]   #年齡，身高，體重
+dat=dat[dat[,5]>=25,]           #年齡
+dat=dat[dat[,6]<220 & dat[,7]<140,]   #身高體重去極端值
+###variable
+dat$age=dat[,5]
+dat$sex=as.factor(ifelse(dat[,4]=='男',1,0))
+dat$high=dat[,6]
+dat$weight=dat[,7]
+dat$statu=dat[,8]
+dat$f_store=ifelse(is.na(dat[,9])==T,mean(dat[,9],na.rm=T),dat[,9])
+dat$f_drink=ifelse(is.na(dat[,10])==T,mean(dat[,10],na.rm=T),dat[,10])
+dat$proximity=dat[,13]
+dat$rice=dat[,15]
+dat$non_drink=dat[,16]
+dat$drink_influence=factor(dat[,17],levels=c('完全沒有','輕微','中等程度','厲害','非常厲害'))
+dat$family_drink=factor(dat[,18],levels=c('反對','偶爾反對','無意見','偶爾鼓勵'))
+dat$friend_drink=factor(dat[,19],levels=c('反對','偶爾反對','無意見','偶爾鼓勵'))
+dat$self_aware=factor(dat[,20],levels=c('太輕','輕','剛好','太重','重'))
+dat$other_aware=factor(dat[,21],levels=c('太輕','輕','剛好','太重','重'))
+dat$exercise=dat[,24]
+dat$work=dat[,50]
+###訪員姓名
+dat$name=c()
+for(i in 1:nrow(dat)){
+  if(is.na(dat[i,2])==T){dat$name[i]='NA'}
+  else if(dat[i,2]=='陳采均'){dat$name[i]='CHEN,AI-JUN'} 
+  else if(dat[i,2]=='陳映如'){dat$name[i]='CHEN,YING-RU'} 
+  else if(dat[i,2]=='王宇綺'){dat$name[i]='WANG,YU-QI'} 
+  else if(dat[i,2]=='張珵容'){dat$name[i]='ZHANG,CHENG-RONG'} 
+  else if(dat[i,2]=='周末'){dat$name[i]='MO,ZHOU'} 
+  else if(dat[i,2]=='林品翰'){dat$name[i]='Iron Pao'} 
+  else if(dat[i,2]=='林智培'){dat$name[i]='LIN,ZHI-PEI'} 
+  else if(dat[i,2]=='林威志'){dat$name[i]='LIN,WEI-ZHI'} 
+  else if(dat[i,2]=='黃奕安'){dat$name[i]='HUANG,YI-AN'} 
+  else if(dat[i,2]=='陳慶安'){dat$name[i]='CHEN,QING-AN'} 
+  else if(dat[i,2]=='賴冠伯'){dat$name[i]='LAI,GUAN-BO'} 
+  else if(dat[i,2]=='廖為謙'){dat$name[i]='LIAO,WEI-QIAN'} 
+  else if(dat[i,2]=='曾心柔'){dat$name[i]='ZENG,XIN-ROU'} 
+  else if(dat[i,2]=='高鈺玫'){dat$name[i]='GAO,YU-MEI'} 
+  else if(dat[i,2]=='邱佩歆'){dat$name[i]='QIU,PEI-XIN'} 
+  else{dat$name[i]='NA'}
+}
+###drink_sugar
+sugar_lv=c(
+  mean(54.1,58.4,62.7),
+  mean(32.2,32.2,45.1),
+  mean(23.0,23.0,38.9))
+dat$drink_sug=c()
+for(i in 1:dim(dat)[1]){
+  if(dat[i,11]=='全糖（10分糖）'|is.na(dat[i,11]==T)){dat$drink_sug[i]=sugar_lv[1]}
+  else if(dat[i,11]=='少糖（7-9分糖）'){dat$drink_sug[i]=(sugar_lv[1]+sugar_lv[2])/2}
+  else if(dat[i,11]=='半糖（5分糖）'){dat$drink_sug[i]=sugar_lv[2]}
+  else if(dat[i,11]=='微糖（2-4分糖）'){dat$drink_sug[i]=sugar_lv[3]}
+  else if(dat[i,11]=='無糖（不加糖）'){dat$drink_sug[i]=sugar_lv[2]-sugar_lv[3]}
+}
+###Convenience store
+sug=c(0,9.6,6,0,0.6,4.6,6.4,5,8.2,10.2,5,0.1,0,0.9)
+commodity=c('水','碳酸飲料','含糖的茶','無糖的茶','含糖的豆漿','無糖的豆漿','沖泡咖啡',
+            '罐裝咖啡','奶茶','果汁','牛奶','優酪乳','啤酒','其他酒類')
+store_buy=matrix(0,dim(dat)[1],length(commodity))
+colnames(store_buy)=c(commodity)
+buy=strsplit(as.character(dat[,12]),', ',fixed=T)
+for (i in 1:nrow(dat))for(j in 1:length(commodity))for(k in 1:length(buy[[i]])) {
+  if(buy[[i]][k]==commodity[j] | is.na(buy[[i]][k])){store_buy[i,j]=1}  }
+for(i in 1:nrow(dat)){ dat$stor_sug[i]=sum(sug*store_buy[i,]) +10}
+###sugar
+dat$sugar=(dat$stor_sug*(dat$f_store+2)+dat$drink_sug*(dat$f_drink+2))/7
+###nutrition
+nutri=c('糖','蛋白質','脂質','水','纖維素','維生素','礦物質')
+nutrition=matrix(0,nrow(dat),length(nutri))
+colnames(nutrition)=c(nutri)
+nutri_list=strsplit(as.character(dat[,14]),', ',fixed=T)
+for(i in 1:nrow(dat))for(j in 1:length(nutri))for(k in 1:length(nutri_list[[i]])){
+  if(nutri_list[[i]][k]==nutri[j]|is.na(nutri_list[[i]][k])==T){nutrition[i,k]=1}}
+###cal
+cal_matrix=rbind(c(35,30,25),c(40,35,30),c(45,40,35))
+dat$BMI=dat$weight/(dat$high/100)^2
+dat$cal=c()
+for(k in 1:nrow(dat)){
+  if(dat$exercise[k]=='輕度工作'|is.na(dat$exercise[k])==T){i=1}
+  else if(dat$exercise[k]=='中度工作'){i=2}
+  else{i=3}
+  if(dat$BMI[k]<1.85 | is.na(dat$BMI[k])==T){j=1}
+  else if(dat$BMI[k]>24){j=3}
+  else{j=2}
+  dat$cal[k]=dat$weight[k]*cal_matrix[i,j]}
+###BSRS
+dat$BSRS=c()
+for(i in 1:nrow(dat)){dat$BSRS[i]=sum(dat[i,64:65],na.rm=T)}
+dat$BSRS5=c()
+for(i in 1:nrow(dat)){
+  if(dat$BSRS[i]<=5){dat$BSRS5[i]='正常'}
+  else if(dat$BSRS[i]<=9){dat$BSRS5[i]='輕度'}
+  else if(dat$BSRS[i]<=14){dat$BSRS5[i]='中度'}
+  else{dat$BSRS5[i]='重度'}}
+###sleep
+dat$sleep=c(0)
+sleep_matrix=matrix(0,nrow(dat),8)
+for(i in 1:nrow(dat)){
+  if(dat[i,42]=='沒問題' | is.na(dat[i,42])==T){sleep_matrix[i,1]=0}
+  else if(dat[i,42]=='略為延遲'){sleep_matrix[i,1]=1}
+  else if(dat[i,42]=='中度延遲'){sleep_matrix[i,1]=2}
+  else{sleep_matrix[i,1]=3}
+  if(dat[i,43]=='沒問題' | is.na(dat[i,43])==T){sleep_matrix[i,2]=0}
+  else if(dat[i,43]=='問題不大'){sleep_matrix[i,2]=1}
+  else if(dat[i,43]=='問題明顯'){sleep_matrix[i,2]=2}
+  else{sleep_matrix[i,2]=3}  
+  if(dat[i,44]=='沒問題' | is.na(dat[i,44])==T){sleep_matrix[i,3]=0}
+  else if(dat[i,44]=='有點提前'){sleep_matrix[i,3]=1}
+  else if(dat[i,44]=='明顯早醒'){sleep_matrix[i,3]=2}
+  else{sleep_matrix[i,3]=3}  
+  if(dat[i,45]=='沒問題' | is.na(dat[i,45])==T){sleep_matrix[i,4]=0}
+  else if(dat[i,45]=='有點不足'){sleep_matrix[i,4]=1}
+  else if(dat[i,45]=='明顯不足'){sleep_matrix[i,4]=2}
+  else{sleep_matrix[i,4]=3}  
+  if(dat[i,46]=='很滿意' | is.na(dat[i,46])==T){sleep_matrix[i,5]=0}
+  else if(dat[i,46]=='有點不佳'){sleep_matrix[i,5]=1}
+  else if(dat[i,46]=='中度不足'){sleep_matrix[i,5]=2}
+  else{sleep_matrix[i,5]=3}  
+  if(dat[i,47]=='還不錯' | is.na(dat[i,47])==T){sleep_matrix[i,6]=0}
+  else if(dat[i,47]=='有點下降'){sleep_matrix[i,6]=1}
+  else if(dat[i,47]=='明顯欠佳'){sleep_matrix[i,6]=2}
+  else{sleep_matrix[i,6]=3}  
+  if(dat[i,48]=='還正常' | is.na(dat[i,48])==T){sleep_matrix[i,7]=0}
+  else if(dat[i,48]=='有點下降'){sleep_matrix[i,7]=1}
+  else if(dat[i,48]=='中度影響'){sleep_matrix[i,7]=2}
+  else{sleep_matrix[i,7]=3}  
+  if(dat[i,49]=='沒有嗜睡' | is.na(dat[i,49])==T){sleep_matrix[i,8]=0}
+  else if(dat[i,49]=='輕度嗜睡'){sleep_matrix[i,8]=1}
+  else if(dat[i,49]=='中度嗜睡'){sleep_matrix[i,8]=2}
+  else{sleep_matrix[i,8]=3}  
+}
+for(i in 1:nrow(dat)){
+  dat$sleep[i]=sum(sleep_matrix[i,])
+}
+
+#####dsicribe statistic#####
+###sex
+table(dat$sex)
+###check if norm dist
+norm_names=c('high','weight','BMI','cal','sugar','BSRS','sleep')
+P.value=c()
+for(i in 1:length(norm_names)){
+  j=which(names(dat)==norm_names[i])
+  P.value[i]=shapiro.test(dat[,j])$p.value}
+names(P.value)=norm_names
+norm_var=P.value[P.value>0.05]  #皆不為常態分佈
+nrow(dat)    #資料夠大(>30)，因CLT，故可以有母數檢定
+###hist
+#check dist.
+hist_BMI=
+  ggplot(dat,aes(BMI))+
+  geom_histogram(aes(y = ..density..), fill = '#2274A5')+
+  geom_freqpoly(aes(y = ..density..),color='#E83F6F')+
+  labs(title='Hist of BMI')
+hist_cal=
+  ggplot(dat,aes(cal))+
+  geom_histogram(aes(y = ..density..), fill = '#2274A5')+
+  geom_freqpoly(aes(y = ..density..),color='#E83F6F')+
+  labs(title='Hist of Daily Calories',
+       y='daily calories(Kcal)')
+hist_sugar=
+  ggplot(dat,aes(BMI))+
+  geom_histogram(aes(y = ..density..), fill = '#2274A5')+
+  geom_freqpoly(aes(y = ..density..),color='#E83F6F')+
+  labs(title='Hist of Add Sugar',
+       y='Add sugar(g)')
+hist_age=
+  ggplot(dat,aes(age))+
+  geom_histogram(aes(y = ..density..), fill = '#2274A5')+
+  geom_freqpoly(aes(y = ..density..),color='#E83F6F')+
+  labs(title='Hist of Age')
+#comnind 4 chart
+grid.arrange(hist_age,hist_BMI,hist_cal,hist_sugar)
+###age v.s. sex
+agebox=ggplot(dat,aes(sex,age))+geom_boxplot(fill=c('#F71735','#41EAD4'),color='#011627')
+agebox+geom_jitter(width = 0.2)+
+  labs(
+    title='Boxplot of Age',
+    y='age(years)')
+t.test(age~sex,dat)
+###每日建議攝取熱量 v.s. 性別
+calbox=ggplot(dat,aes(sex,cal))+geom_boxplot(fill=c('#F71735','#41EAD4'),color='#011627')
+calbox+geom_jitter(width = 0.2)+
+  labs(
+    title='Boxplot of Daily Calories',
+    y='daily calories(Kcal)')
+t.test(cal~sex,dat)
+###外加糖攝取 v.s. 性別
+sugbox=ggplot(dat,aes(sex,sugar))+geom_boxplot(fill=c('#F71735','#41EAD4'),color='#011627')
+sugbox+geom_jitter(width = 0.2)+
+  labs(
+    title='Boxplot of Add Sugar',
+    y='add sugar(g)')
+t.test(sugar~sex,dat)
+###convenice store
+buy2=c()
+for(i in 1:ncol(store_buy)){
+  buy2[i]=sum(store_buy[,i])}
+names(buy2)=commodity
+barplot(buy2,col=rainbow(20),ylab='frequency',main='Buy in Convenice Store')
+###drink store
+drink=factor(dat[,11],levels=c('無糖（不加糖）','微糖（2-4分糖）','半糖（5分糖）','少糖（7-9分糖）','全糖（10分糖）'))
+barplot(table(drink),col=rainbow(20),ylab='frequency',main='Buy in Drink Shop')
+###每日熱量及外加糖
+#以訪員區分
+plot_addsug=ggplot(dat,aes(cal/10,sugar*4))
+plot_addsug+geom_point(aes(colour=factor(name)))+
+  geom_abline(slope=1,intercept=0,color='#0075A2')+
+  scale_x_continuous(limits=c(0,300))+
+  scale_y_continuous(limits=c(0,300))+
+  geom_smooth(method = 'lm')+
+  labs(
+    title ='Daily Add Sugar ',
+    x ='10% daily calories (Kcal)',
+    y ='add sugar (Kcal)' )
+#以性別區分
+plot_addsug=ggplot(dat,aes(cal/10,sugar*4))
+plot_addsug+geom_point(aes(colour=sex))+
+  geom_abline(slope=1,intercept=0,color='#0075A2')+
+  scale_x_continuous(limits=c(0,300))+
+  scale_y_continuous(limits=c(0,300))+
+  geom_smooth(method = 'lm')+
+  labs(
+    title ='Daily Add Sugar ',
+    x ='10% daily calories (Kcal)',
+    y ='add sugar (Kcal)' )
+
+#####Analysis
+###t.test sex
+t_names=c('age','high','weight','BMI','sugar','cal','BSRS','sleep')
+t_sex=matrix(0,length(t_names),3)
+rownames(t_sex)=t_names
+colnames(t_sex)=c('Female','Male','P.value')
+Significant=c()
+for(i in 1:length(t_names)){
+  j=which(names(dat)==t_names[i])
+  t_sex[i,1]=t.test(dat[,j][dat$sex==0],dat[,j][dat$sex==1])$estimate[1]
+  t_sex[i,2]=t.test(dat[,j][dat$sex==0],dat[,j][dat$sex==1])$estimate[2]  
+  t_sex[i,3]=t.test(dat[,j][dat$sex==0],dat[,j][dat$sex==1])$p.value 
+  if(t_sex[i,3]<.001){Significant[i]='***'}
+  else if(t_sex[i,3]<.01){Significant[i]='**'}
+  else if(t_sex[i,3]<.05){Significant[i]='*'}
+  else{Significant[i]=''}}
+t_sex=cbind(data.frame(t_sex),Significant)
+#hist weight v.s. high
+plot_BMI=ggplot(dat,aes(weight,high))
+plot_BMI+geom_point(aes(colour=sex))+
+  geom_smooth(method = 'lm')+
+  labs(
+    title ='Distribution of Weight and High',
+    x ='Weight(Kg)',
+    y ='High(cm)' )
+###ANOVA
+#sug
+anova_names=c("statu","proximity",'work',"drink_influence",'exercise',
+              "family_drink","friend_drink","self_aware",'other_aware')
+aov_sug=matrix(0,length(anova_names),1)
+rownames(aov_sug)=anova_names
+colnames(aov_sug)='P.value'
+Significant=c()
+for(i in 1:length(anova_names)){
+  j=which(names(dat)==anova_names[i])
+  aov_sug[i,1]=summary(aov(dat$sugar~dat[,j]))[[1]][["Pr(>F)"]][1]
+  if(aov_sug[i,1]<.001){Significant[i]='***'}
+  else if(aov_sug[i,1]<.01){Significant[i]='**'}
+  else if(aov_sug[i,1]<.05){Significant[i]='*'}
+  else{Significant[i]=''}}
+aov_sug=cbind(data.frame(aov_sug),Significant)
+#sug TukeyHSD
+HSD_names=anova_names[aov_sug[,1]<.05];HSD_names
+m=aov(sugar~statu,data=dat)                #statu
+ pp=TukeyHSD(m,'statu')
+ plot(pp)
+m=aov(sugar~exercise,data=dat)             #exercise
+ pp=TukeyHSD(m,'exercise')
+ plot(pp)
+m=aov(sugar~family_drink,data=dat)                #family_drink
+ pp=TukeyHSD(m,'family_drink')
+ plot(pp)
+#cal
+ anova_names=c("statu","proximity",'work',"drink_influence",'exercise',
+               "family_drink","friend_drink","self_aware",'other_aware')
+ aov_cal=matrix(0,length(anova_names),1)
+ rownames(aov_cal)=anova_names
+ colnames(aov_cal)='P.value'
+ Significant=c()
+ for(i in 1:length(anova_names)){
+   j=which(names(dat)==anova_names[i])
+   aov_cal[i,1]=summary(aov(dat$cal~dat[,j]))[[1]][["Pr(>F)"]][1]
+   if(aov_cal[i,1]<.001){Significant[i]='***'}
+   else if(aov_cal[i,1]<.01){Significant[i]='**'}
+   else if(aov_cal[i,1]<.05){Significant[i]='*'}
+   else{Significant[i]=''}}
+ aov_cal=cbind(data.frame(aov_cal),Significant)
+#cal TukeyHSD
+ HSD_names=anova_names[aov_cal[,1]<.05];HSD_names
+ m=aov(cal~statu,data=dat)                #statu
+ pp=TukeyHSD(m,'statu')
+ plot(pp)
+ m=aov(cal~exercise,data=dat)             #exercise
+ pp=TukeyHSD(m,'exercise')
+ plot(pp)
+ m=aov(cal~family_drink,data=dat)                #family_drink
+ pp=TukeyHSD(m,'family_drink')
+ plot(pp)
+ 
+###correlation cal v.s. sug
+rbind(estimate=cor.test(dat$cal,dat$sugar)$estimate,
+      p.value=cor.test(dat$cal,dat$sugar)$p.value)
+
+###含糖飲料攝取 回歸
+#資料修繕
+data=na.omit(dat)
+#stepwise
+step(lm(sugar~age+sex+high+weight+statu+f_store+f_drink+proximity+
+          rice+non_drink+drink_influence+family_drink+friend_drink+
+          friend_drink+self_aware+other_aware+exercise+work+drink_sug+
+          stor_sug+BMI+cal+BSRS+sleep,
+          data=data))
+levels(dat$drink_influence)
+levels(dat$family_drink)
+
+###k-fold cross-validation
+
+??cv.glm
+
+?cv.glm
+
+cv.gl
